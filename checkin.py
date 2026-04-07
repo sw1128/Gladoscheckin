@@ -215,12 +215,11 @@ def format_push_content(results: List[Dict[str, str]]) -> Tuple[str, str]:
     content_lines = []
     for i, res in enumerate(results, 1):
         line_parts = [
-            f"账号{i}:",
-            f"P:{res['points']}",
+            f"【账号{i}】",
             f"剩余天数:{res['days']}",
-            f"总积分:{res['points_total']}",
+            f"| 总积分:{res['points_total']}",
             f"| {res['status']}",
-            f"; {res['exchange']}"
+            f"| {res['exchange']}"
         ]
         line = " ".join(line_parts)
         content_lines.append(line)
