@@ -4,7 +4,7 @@ import os
 import logging
 import datetime
 from typing import Dict, List, Optional, Tuple
-from pypushdeer import PushDeer
+
 
 def beijing_time_converter(timestamp):
     utc_dt = datetime.datetime.fromtimestamp(timestamp, tz=datetime.timezone.utc)
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 # ENVIRONMENT
-ENV_PUSH_KEY = "PUSHDEER_SENDKEY"
+ENV_PUSH_KEY = "SCT_KEY"
 ENV_COOKIES = "GLADOS_COOKIES"
 ENV_EXCHANGE_PLAN = "GLADOS_EXCHANGE_PLAN"
 
@@ -261,9 +261,17 @@ def main():
         logger.info(f"未设置 '{ENV_PUSH_KEY}'，跳过推送通知。")
     else:
         try:
-            pushdeer = PushDeer(pushkey=push_key)
-            pushdeer.send_text(title, desp=content)
-            logger.info("推送通知发送成功。")
+            # Server酱推送地址：https://19351.push.ft07.com/send/{SCT_KEY}.send?title={title}&desp={desp}
+            url = f"https://19351.push.ft07.com/send/{push_key}.send"
+            params = {
+                "title": title,
+                "desp": content
+            }
+            response = requests.get(url, params=params)
+            if response.status_code == 200:
+                logger.info("Server酱推送通知发送成功。")
+            else:
+                logger.error(f"Server酱推送通知发送失败，状态码: {response.status_code}, 响应: {response.text}")
         except Exception as e:
             logger.error(f"发送推送通知失败: {e}")
 
