@@ -28,7 +28,7 @@ ENV_COOKIES = "GLADOS_COOKIES"
 ENV_EXCHANGE_PLAN = "GLADOS_EXCHANGE_PLAN"
 
 # API URLs & Domains
-DOMAINS = ["glados.cloud", "railgun.info"]
+DOMAINS = ["railgun.info"]
 
 CHECKIN_PATH = "/api/user/checkin"
 STATUS_PATH = "/api/user/status"
@@ -125,12 +125,13 @@ def checkin_and_process(cookie: str, domain: str, exchange_plan: str) -> Tuple[s
 
     try:
         checkin_data_resp = checkin_response.json()
+        code = checkin_data_resp.get('code', -1)
         response_message = checkin_data_resp.get('message', '无消息字段')
         points_gained = str(checkin_data_resp.get('points', 0))
 
-        if "Checkin! Got" in response_message:
+        if code == 0:
             status_msg = f"签到成功，获得 {points_gained} 积分"
-        elif "Checkin Repeats!" in response_message:
+        elif code == 1:
             status_msg = "重复签到，明天再来"
             points_gained = "0"
         else:
@@ -244,9 +245,24 @@ def main():
             results = []
             for idx, cookie in enumerate(cookies_list, 1):
                 logger.info(f"正在处理第 {idx} 个账户...")
+                success_domain = None
                 for domain in DOMAINS:
                     logger.info(f"正在尝试域名: {domain}...")
                     status, points, days, points_total, exchange = checkin_and_process(cookie, domain, exchange_plan)
+                    if status != "签到请求失败":
+                        results.append({
+                            'status': status,
+                            'points': points,
+                            'days': days,
+                            'points_total': points_total,
+                            'exchange': exchange
+                        })
+                        success_domain = domain
+                        logger.info(f"账户 {idx} 在域名 {domain} 上处理成功，跳过其他域名。")
+                        break
+                
+                if not success_domain:
+                    logger.error(f"账户 {idx} 尝试所有域名均失败。")
                     results.append({
                         'status': status,
                         'points': points,
