@@ -27,25 +27,25 @@ ENV_PUSH_KEY = "PUSH_SENDKEY"
 ENV_COOKIES = "GLADOS_COOKIES"
 ENV_EXCHANGE_PLAN = "GLADOS_EXCHANGE_PLAN"
 
-# API URLs
-CHECKIN_URL = "https://glados.cloud/api/user/checkin"
-STATUS_URL = "https://glados.cloud/api/user/status"
-POINTS_URL = "https://glados.cloud/api/user/points"
-EXCHANGE_URL = "https://glados.cloud/api/user/exchange"
+# API URLs & Domains
+DOMAINS = ["glados.cloud", "railgun.info"]
 
-# POST DATA
-CHECKIN_DATA = {"token": "glados.cloud"} 
+CHECKIN_PATH = "/api/user/checkin"
+STATUS_PATH = "/api/user/status"
+POINTS_PATH = "/api/user/points"
+EXCHANGE_PATH = "/api/user/exchange"
 
-# Request Headers
-HEADERS_TEMPLATE = {
-    'referer': 'https://glados.cloud/console/checkin',
-    'origin': "https://glados.cloud",
-    'user-agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36",
-    'content-type': 'application/json;charset=UTF-8'
-}
+def get_headers(domain: str) -> dict:
+    return {
+        'referer': f'https://{domain}/console/checkin',
+        'origin': f"https://{domain}",
+        'user-agent': "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.0.0 Safari/537.36",
+        'content-type': 'application/json;charset=UTF-8'
+    }
 
 # Exchange Plan Points
 EXCHANGE_POINTS = {"plan100": 100, "plan200": 200, "plan500": 500} 
+
 
 def load_config() -> Tuple[str, List[str], str]:
     push_key_env = os.environ.get(ENV_PUSH_KEY)
@@ -108,7 +108,7 @@ def make_request(url: str, method: str, headers: Dict[str, str], data: Optional[
         return None
 
 
-def checkin_and_process(cookie: str, exchange_plan: str) -> Tuple[str, str, str, str, str]:
+def checkin_and_process(cookie: str, domain: str, exchange_plan: str) -> Tuple[str, str, str, str, str]:
 
     status_msg = "签到请求失败"
     points_gained = "0"
@@ -116,14 +116,17 @@ def checkin_and_process(cookie: str, exchange_plan: str) -> Tuple[str, str, str,
     remaining_points = "获取剩余积分失败"
     exchange_msg = "兑换跳过或失败"
 
-    checkin_response = make_request(CHECKIN_URL, 'POST', HEADERS_TEMPLATE, CHECKIN_DATA, cookies=cookie)
+    headers = get_headers(domain)
+    checkin_data = {"token": domain}
+
+    checkin_response = make_request(f"https://{domain}{CHECKIN_PATH}", 'POST', headers, checkin_data, cookies=cookie)
     if not checkin_response:
         return status_msg, points_gained, remaining_days, remaining_points, exchange_msg
 
     try:
-        checkin_data = checkin_response.json()
-        response_message = checkin_data.get('message', '无消息字段')
-        points_gained = str(checkin_data.get('points', 0))
+        checkin_data_resp = checkin_response.json()
+        response_message = checkin_data_resp.get('message', '无消息字段')
+        points_gained = str(checkin_data_resp.get('points', 0))
 
         if "Checkin! Got" in response_message:
             status_msg = f"签到成功，获得 {points_gained} 积分"
@@ -137,7 +140,7 @@ def checkin_and_process(cookie: str, exchange_plan: str) -> Tuple[str, str, str,
         logger.error(f"解析签到响应 JSON 失败: {checkin_response.text}")
         return status_msg, points_gained, remaining_days, remaining_points, exchange_msg
 
-    status_response = make_request(STATUS_URL, 'GET', HEADERS_TEMPLATE, cookies=cookie)
+    status_response = make_request(f"https://{domain}{STATUS_PATH}", 'GET', headers, cookies=cookie)
     if status_response:
         try:
             status_data = status_response.json()
@@ -155,7 +158,8 @@ def checkin_and_process(cookie: str, exchange_plan: str) -> Tuple[str, str, str,
     else:
         remaining_days = "获取剩余天数失败 (HTTP请求失败)"
 
-    points_response = make_request(POINTS_URL, 'GET', HEADERS_TEMPLATE, cookies=cookie)
+    points_response = make_request(f"https://{domain}{POINTS_PATH}", 'GET', headers, cookies=cookie)
+    points_data = None
     if points_response:
         try:
             points_data = points_response.json()
@@ -168,21 +172,22 @@ def checkin_and_process(cookie: str, exchange_plan: str) -> Tuple[str, str, str,
             logger.error(f"解析积分响应 JSON 失败: {points_response.text}")
             remaining_points = "获取剩余积分失败 (JSON解析错误)"
         except (ValueError, TypeError):
-            logger.error(f"解析剩余积分时出错: {points_data.get('points', 'unknown')}")
+            logger.error(f"解析剩余积分时出错: {points_data.get('points', 'unknown') if points_data else 'unknown'}")
             remaining_points = "获取剩余积分失败 (数值转换错误)"
     else:
         remaining_points = "获取剩余积分失败 (HTTP请求失败)"
 
     current_points_numeric = 0
     try:
-        current_points_numeric = int(float(points_data.get('points', 0)))
+        if points_data is not None:
+            current_points_numeric = int(float(points_data.get('points', 0)))
     except (ValueError, TypeError):
         logger.warning(f"无法解析当前积分数值，可能影响兑换判断: {remaining_points}")
 
     required_points = EXCHANGE_POINTS.get(exchange_plan, 500) 
     if current_points_numeric >= required_points:
         logger.info(f"开始兑换 {exchange_plan} 计划 (需要 {required_points} 积分)")
-        exchange_response = make_request(EXCHANGE_URL, 'POST', HEADERS_TEMPLATE, {"planType": exchange_plan}, cookies=cookie)
+        exchange_response = make_request(f"https://{domain}{EXCHANGE_PATH}", 'POST', headers, {"planType": exchange_plan}, cookies=cookie)
         if exchange_response:
             try:
                 exchange_data = exchange_response.json()
@@ -239,14 +244,16 @@ def main():
             results = []
             for idx, cookie in enumerate(cookies_list, 1):
                 logger.info(f"正在处理第 {idx} 个账户...")
-                status, points, days, points_total, exchange = checkin_and_process(cookie, exchange_plan)
-                results.append({
-                    'status': status,
-                    'points': points,
-                    'days': days,
-                    'points_total': points_total,
-                    'exchange': exchange
-                })
+                for domain in DOMAINS:
+                    logger.info(f"正在尝试域名: {domain}...")
+                    status, points, days, points_total, exchange = checkin_and_process(cookie, domain, exchange_plan)
+                    results.append({
+                        'status': status,
+                        'points': points,
+                        'days': days,
+                        'points_total': points_total,
+                        'exchange': exchange
+                    })
 
             title, content = format_push_content(results)
             logger.info(f"推送标题: {title}")
